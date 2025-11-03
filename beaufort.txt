@@ -1,0 +1,17 @@
++-----------+--------------------------+------------------+
+| Beaufort  | Description              | Wind Speed (kt)  |
++-----------+--------------------------+------------------+
+| 0         | Calm                     | < 1              |
+| 1         | Light Air                | 1 – 3            |
+| 2         | Light Breeze             | 4 – 6            |
+| 3         | Gentle Breeze            | 7 – 10           |
+| 4         | Moderate Breeze          | 11 – 16          |
+| 5         | Fresh Breeze             | 17 – 21          |
+| 6         | Strong Breeze            | 22 – 27          |
+| 7         | Near Gale                | 28 – 33          |
+| 8         | Gale                     | 34 – 40          |
+| 9         | Strong Gale              | 41 – 47          |
+| 10        | Storm                    | 48 – 55          |
+| 11        | Violent Storm            | 56 – 63          |
+| 12        | Hurricane Force          | ≥ 64             |
++-----------+--------------------------+------------------+
