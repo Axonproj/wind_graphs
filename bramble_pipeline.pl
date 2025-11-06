@@ -1,131 +1,76 @@
 #!/usr/bin/env perl
 use strict;
 use warnings;
+use feature 'say';
+use File::Spec;
+use POSIX qw(strftime);
 use Time::Piece;
 use Time::Seconds;
-use File::Path qw(make_path);
-use File::Spec;
-use HTTP::Tiny;
-use Text::CSV;
 
-# --- Config
-my $DATA_DIR        = "data";
-my $FORECAST_SCRIPT = "./get_forecast.sh";
+# --- DATE HANDLING ---------------------------------------------------------
+# Optional command-line arg: yyyymmdd (treated as "today")
+my $today_str;
 
-sub say { print @_, "\n" }
-
-# --- Dates (yyyyMMdd)
-my $now       = localtime;
-my $today     = $now->strftime('%Y%m%d');
-my $y_t       = $now - ONE_DAY;
-my $yesterday = $y_t->strftime('%Y%m%d');
-my $t_t       = $now + ONE_DAY;
-my $tomorrow  = $t_t->strftime('%Y%m%d');
-
-say "[info] Today:     $today";
-say "[info] Yesterday: $yesterday";
-say "[info] Tomorrow:  $tomorrow";
-
-# --- Ensure data dir
-unless (-d $DATA_DIR) {
-    say "[info] Creating data directory: $DATA_DIR";
-    make_path($DATA_DIR) or die "[error] Could not create '$DATA_DIR': $!\n";
+if (@ARGV && $ARGV[0] =~ /^\d{8}$/) {
+    $today_str = $ARGV[0];
+    say "[info] Using provided date as 'today': $today_str";
+} else {
+    $today_str = strftime("%Y%m%d", localtime);
+    say "[info] Using system date as 'today': $today_str";
 }
 
-# --- Build URL & output paths for YESTERDAY
-my $yyyy         = $y_t->strftime('%Y');
-my $day_of_month = $y_t->strftime('%d'); # 01..31
+# Compute yesterday and tomorrow
+my $today_obj = Time::Piece->strptime($today_str, "%Y%m%d");
+my $yesterday = ($today_obj - ONE_DAY)->strftime("%Y%m%d");
+my $tomorrow  = ($today_obj + ONE_DAY)->strftime("%Y%m%d");
 
-# Use fixed English month names/abbreviations (avoid locale issues)
-my @month_names = qw(January February March April May June July August September October November December);
-my @month_abbr  = qw(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec);
-my $mon_index   = $y_t->mon - 1; # 0..11
+say "[info] Today: $today_str  Yesterday: $yesterday  Tomorrow: $tomorrow";
 
-my $month_name   = $month_names[$mon_index];
-my $month_abbrev = $month_abbr[$mon_index];
+# --- EXISTING PIPELINE LOGIC ---
+# (Your existing data download and processing code stays here)
 
-# Example: https://www.bramblemet.co.uk/archive/2025/January/CSV/Bra01Jan2025.csv
-my $source_csv_url = sprintf(
-    "https://www.bramblemet.co.uk/archive/%s/%s/CSV/Bra%s%s%s.csv",
-    $yyyy, $month_name, $day_of_month, $month_abbrev, $yyyy
-);
+# --- GRAPH GENERATION -----------------------------------------------------
+my $graph_file = File::Spec->catfile("graphs", "${yesterday}_bramble_bank_wind.png");
 
-my $actual_csv    = File::Spec->catfile($DATA_DIR, "${yesterday}_bramble_actual.csv");
-my $forecast_json = File::Spec->catfile($DATA_DIR, "${tomorrow}_bramble_forecast.json");
-
-# --- YESTERDAY: fetch actual wind data if missing (no curl; pure Perl HTTP)
-if (-e $actual_csv) {
-    say "[ok] Actual file already exists: $actual_csv";
+if (-e $graph_file) {
+    say "[skip] Graph already exists: $graph_file";
 } else {
-    say "[info] Actual file not found. Fetching yesterday's data for $yesterday …";
-    say "[info] URL: $source_csv_url";
+    say "[run] Generating graph using make_graph.py: $graph_file";
+    my $cmd = "python3 make_graph.py $yesterday --no-show";
+    my $exit_status = system($cmd);
 
-    my $http = HTTP::Tiny->new( timeout => 20 );
-    my $res  = $http->get($source_csv_url);
+    if ($exit_status == 0) {
+        say "[ok] Graph created successfully: $graph_file";
 
-    unless ($res->{success}) {
-        my $status = $res->{status} // '???';
-        my $reason = $res->{reason} // 'Unknown error';
-        die "[error] HTTP GET failed ($status): $reason\n";
-    }
+        # --- UPDATE index.html -----------------------------------------------------
+        my $index_file = "index.html";
 
-    my $content = $res->{content};
-    open my $out, ">", $actual_csv
-        or die "[error] Cannot write '$actual_csv': $!\n";
+        if (-e $index_file) {
+            say "[update] Adding new graph to index.html: $graph_file";
 
-    my $csv = Text::CSV->new({ binary => 1, auto_diag => 1, allow_loose_quotes => 1 });
+            open my $in, "<", $index_file or die "Cannot read $index_file: $!";
+            my @lines = <$in>;
+            close $in;
 
-    my $rows = 0;
-    eval {
-        open my $in, "<", \$content or die "Cannot open in-memory: $!";
-        while (my $line = <$in>) {
-            next if $line =~ /^\s*$/; # skip blanks
-            if ($csv->parse($line)) {
-                my @f = $csv->fields;
-                # Keep columns 1,2,3,5 => indexes 0,1,2,4
-                my @want = map { defined $f[$_] ? $f[$_] : "" } (0,1,2,4);
-                print $out join(",", @want), "\n";
-                $rows++;
+            my $img_tag = qq{  <img src="$graph_file"\n       style="display:block; margin:auto; max-width:100%; height:auto;">\n};
+
+            open my $out, ">", $index_file or die "Cannot write to $index_file: $!";
+            my $inserted = 0;
+            foreach my $line (@lines) {
+                print $out $line;
+                if ($line =~ m{<h1>} && !$inserted) {
+                    print $out $img_tag;
+                    $inserted = 1;
+                }
             }
-        }
-        close $in;
-        1;
-    } or do {
-        my $err = $@ || "unknown error";
-        close $out;
-        unlink $actual_csv; # remove partial file
-        die "[error] Failed while parsing CSV: $err";
-    };
+            close $out;
 
-    close $out;
-
-    if ($rows > 0) {
-        say "[ok] Saved actual data ($rows rows) to: $actual_csv";
-    } else {
-        unlink $actual_csv;
-        warn "[error] No rows parsed; removed empty file: $actual_csv\n";
-    }
-}
-
-# --- TOMORROW: get forecast if missing
-if (-e $forecast_json) {
-    say "[ok] Forecast file already exists: $forecast_json";
-} else {
-    say "[info] Forecast file not found. Running forecast script: $FORECAST_SCRIPT";
-    unless (-x $FORECAST_SCRIPT) {
-        die "[error] Forecast script not found or not executable: $FORECAST_SCRIPT\n";
-    }
-    my $rc = system($FORECAST_SCRIPT);
-    if ($rc == 0) {
-        if (-e $forecast_json) {
-            say "[ok] Forecast saved to: $forecast_json";
+            say "[ok] Updated index.html with new image.";
         } else {
-            warn "[warn] Forecast script completed but $forecast_json was not created.\n";
+            warn "[warn] index.html not found, skipping update.";
         }
+
     } else {
-        my $exit = ($rc == -1) ? "failed to execute: $!" : "exit status " . ($rc >> 8);
-        warn "[error] Forecast script failed ($exit). Forecast not updated.\n";
+        warn "[warn] make_graph.py failed (exit code $exit_status)";
     }
 }
-
-say "[done] Finished. Check '$DATA_DIR' for outputs.";

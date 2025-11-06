@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-speed_and_gusts.py
+make_graph.py
 
 Usage:
-  python3 speed_and_gusts.py yyyymmdd
+  python3 make_graph.py yyyymmdd --no-show
 
 Given a date string in yyyymmdd format, this script reads two files in ./data:
 
@@ -417,24 +417,17 @@ def plot_series(forecast: pd.DataFrame, actual: pd.DataFrame, title: str, start=
     ax.legend(loc="upper left")
     fig.tight_layout()
 
-    out_png = f"{title.replace(' ', '_').lower()}.png" if title else "wind_speed.png"
+    out_png = f"./graphs/{title.replace(' ', '_').lower()}.png" if title else "wind_speed.png"
     fig.savefig(out_png, dpi=150, bbox_inches="tight")
     print(f"Saved plot to {out_png}")
 
-    try:
-        plt.show()
-    except KeyboardInterrupt:
-        print("Interrupted while showing plot.", file=sys.stderr)
-        plt.close("all")
-        return
-
-
 def main(argv: List[str]) -> int:
-    if len(argv) != 2:
-        print("Usage: python speed_and_gusts.py yyyymmdd", file=sys.stderr)
+    if len(argv) < 2 or len(argv) > 3:
+        print("Usage: python3 make_graph.py yyyymmdd [--no-show]", file=sys.stderr)
         return 2
 
     date_str = argv[1]
+    no_show = "--no-show" in argv
     validate_date_str(date_str)
 
     # Build 24h window in Europe/London for the specified date
@@ -485,3 +478,22 @@ def main(argv: List[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv))
+
+
+import sys
+
+# --- Handle output display and saving ---
+try:
+    fig.savefig(out_png, dpi=150, bbox_inches="tight")
+    print(f"Saved plot to {out_png}")
+except Exception as e:
+    print(f"[error] Failed to save figure: {e}")
+
+# Check for --no-show flag
+if "--no-show" in sys.argv:
+    plt.close(fig)
+    print("[info] Running in no-show mode, skipping display.")
+else:
+    print("[info] Showing plot window...")
+    plt.show()
+

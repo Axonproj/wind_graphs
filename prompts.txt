@@ -50,3 +50,15 @@ the script takes no args.
 
 Print informative messages about whether the files exist, errors, etc.
 
+===
+
+Modify bramble_pipeline.pl to call make_graph.pl. It takes yesterday's date as an arg. Eg:
+
+./make_graph.pl 20251105
+
+and creates:
+
+graphs/20251105_bramble_bank_wind.png
+
+Don't run make_graph.pl if the corresponding image file already exists.
+
