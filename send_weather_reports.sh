@@ -1,47 +1,41 @@
-#!/bin/bash
+#!/usr/bin/bash
 # --- Bramble Pipeline + Git Auto-Commit + Telegram Notifier ---
 
-# === Telegram setup ===
-TOKEN="YOUR_BOT_TOKEN"
-CHAT_ID="YOUR_CHAT_ID"
+TOKEN="8341214958:AAGjCWs9gcZAiyCh9nZBMvfJcfHw-W9R6PQ"
+CHAT_ID="8282574082"
 
-# === Paths ===
 PROJECT="/home/ray/projects/wind_graphs"
 PIPELINE="$PROJECT/bramble_pipeline.pl"
-OUTFILE="/tmp/bramble_output.txt"
-GIT_LOG="/tmp/git_push_log.txt"
+OUTFILE="/tmp/bramble_full_output.txt"
 
-# === Header ===
+cd "$PROJECT"
+
+# Start log fresh
 {
   echo "📅 $(date '+%Y-%m-%d %H:%M:%S')"
   echo "🏗️  Running Bramble pipeline..."
   echo "-----------------------------------------------"
 } > "$OUTFILE"
 
-# === Run the pipeline ===
-cd "$PROJECT"
+# Run the pipeline and capture *all* output
 /usr/bin/perl "$PIPELINE" >> "$OUTFILE" 2>&1
-
 echo "-----------------------------------------------" >> "$OUTFILE"
 echo "🗂️  Running Git commit and push..." >> "$OUTFILE"
 
-# === Git commit & push ===
-git add -A >> "$GIT_LOG" 2>&1
-git commit -m "Automated update from Raspberry Pi on $(date '+%Y-%m-%d %H:%M:%S')" >> "$GIT_LOG" 2>&1
-git push origin main >> "$GIT_LOG" 2>&1
+# Commit and push any changes
+if ! git diff-index --quiet HEAD --; then
+  git add -A >> "$OUTFILE" 2>&1
+  git commit -m "Automated update from Raspberry Pi on $(date '+%Y-%m-%d %H:%M:%S')" >> "$OUTFILE" 2>&1
+  git push origin main >> "$OUTFILE" 2>&1
+  echo "✅ Changes committed and pushed to GitHub." >> "$OUTFILE"
+else
+  echo "ℹ️  No changes detected. Nothing to commit." >> "$OUTFILE"
+fi
 
-# Append Git log to report
-{
-  echo "-----------------------------------------------"
-  echo "✅ Git Push Log:"
-  cat "$GIT_LOG"
-  echo "-----------------------------------------------"
-  echo "✅ All tasks completed successfully."
-} >> "$OUTFILE"
+echo "-----------------------------------------------" >> "$OUTFILE"
+echo "✅ All tasks completed successfully." >> "$OUTFILE"
 
-# === Send Telegram message ===
+# Send the *entire* output file to Telegram
 curl -s -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
   -d chat_id="$CHAT_ID" \
   --data-urlencode text="$(cat "$OUTFILE")" > /dev/null
-
-#
