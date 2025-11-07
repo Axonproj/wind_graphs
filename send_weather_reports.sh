@@ -20,6 +20,11 @@ CHAT_ID=8282574082
 #
 cd "$PROJECT_DIR" || { echo "❌ ERROR: Cannot cd to $PROJECT_DIR"; exit 1; }
 
+echo "===========================================" > "$LOGFILE"
+echo "Run started: $(date)" >> "$LOGFILE"
+echo "Host: $(hostname)" >> "$LOGFILE"
+echo "===========================================" >> "$LOGFILE"
+
 # --- Ensure virtual environment exists ---
 if [ ! -d "$VENV_DIR" ]; then
   echo "Creating Python venv at $VENV_DIR" >> "$LOGFILE"
