@@ -88,13 +88,24 @@ fi
 
 
 # --- Determine modified files in this commit ---
-MODIFIED_FILES=$(git diff-tree --no-commit-id --name-only -r HEAD)
+LAST_COMMIT_HASH=$(git rev-parse HEAD)
+LAST_COMMIT_AUTHOR=$(git log -1 --pretty=%an)
+LAST_COMMIT_MSG=$(git log -1 --pretty=%s)
+
+# Check if the last commit was made by this script (matches our automated message)
+if git log -1 --pretty=%s | grep -q "Automated update (data + graphs)"; then
+    MODIFIED_FILES=$(git diff-tree --no-commit-id --name-only -r "$LAST_COMMIT_HASH" | grep -E '^(data|graphs)/' || true)
+else
+    MODIFIED_FILES=""
+fi
+
 if [ -z "$MODIFIED_FILES" ]; then
-  MODIFIED_FILES="(no file changes)"
+    MODIFIED_FILES="(no data/graph changes)"
 fi
 
 echo "➡️ Modified files:" >> "$LOGFILE"
 echo "$MODIFIED_FILES" >> "$LOGFILE"
+
 
 # --- Telegram notification with file list ---
 ENCODED_FILES=$(printf "%s" "$MODIFIED_FILES" | perl -pe 's/\n/%0A/g')
