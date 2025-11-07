@@ -40,11 +40,47 @@ echo "Run started: $(date)" >> "$LOGFILE"
 echo "➡️ Running bramble_pipeline.pl..." >> "$LOGFILE"
 perl bramble_pipeline.pl >> "$LOGFILE" 2>&1
 
-# --- Commit and push changes ---
-echo "➡️ Committing and pushing updates..." >> "$LOGFILE"
-git add -A >> "$LOGFILE" 2>&1
-git commit -m "Automated update on $(date '+%Y-%m-%d %H:%M:%S')" >> "$LOGFILE" 2>&1 || echo "No changes to commit" >> "$LOGFILE"
-git push origin main >> "$LOGFILE" 2>&1 || echo "Git push failed" >> "$LOGFILE"
+
+
+# --- Commit and push only data + graphs ---
+echo "➡️ Committing and pushing updates (data + graphs only)..." >> "$LOGFILE"
+
+# Stage only relevant folders if they exist
+if [ -d "data" ]; then
+  git add data >> "$LOGFILE" 2>&1
+fi
+
+if [ -d "graphs" ]; then
+  git add graphs >> "$LOGFILE" 2>&1
+fi
+
+# Commit only if there are changes
+if ! git diff --cached --quiet; then
+  git commit -m "Automated update (data + graphs) on $(date '+%Y-%m-%d %H:%M:%S')" >> "$LOGFILE" 2>&1
+else
+  echo "No data/graph changes to commit." >> "$LOGFILE"
+fi
+
+
+# --- Push changes (fail fast on conflict) ---
+echo "➡️ Pushing changes to GitHub..." >> "$LOGFILE"
+
+if ! git push origin main >> "$LOGFILE" 2>&1; then
+  echo "❌ Push failed — remote has diverged. Please resolve manually." >> "$LOGFILE"
+  echo "Stopping script to avoid overwriting remote history." >> "$LOGFILE"
+  # --- Telegram failure alert ---
+  ALERT_MSG="🚨 Git push failed on $(hostname) at $(date '+%H:%M:%S')%0A%0A\
+The remote has diverged and requires manual resolution.%0A\
+Run:%0A%60cd ~/projects/wind_graphs && git pull origin main%60%0A\
+Then resolve conflicts and push manually."
+
+  curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+       -d chat_id="${CHAT_ID}" \
+       -d text="${ALERT_MSG}" >> "$LOGFILE" 2>&1
+
+  exit 1
+fi
+
 
 # --- Determine modified files in this commit ---
 MODIFIED_FILES=$(git diff-tree --no-commit-id --name-only -r HEAD)
