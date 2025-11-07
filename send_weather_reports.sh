@@ -56,7 +56,7 @@ echo "➡️ Modified files:" >> "$LOGFILE"
 echo "$MODIFIED_FILES" >> "$LOGFILE"
 
 # --- Telegram notification with file list ---
-ENCODED_FILES=$(echo "$MODIFIED_FILES" | sed ':a;N;$!ba;s/\n/%0A/g')
+ENCODED_FILES=$(printf "%s" "$MODIFIED_FILES" | perl -pe 's/\n/%0A/g')
 MESSAGE="✅ Weather update completed on $(hostname) at $(date '+%H:%M:%S')%0A%0AFiles changed:%0A$ENCODED_FILES"
 
 curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
