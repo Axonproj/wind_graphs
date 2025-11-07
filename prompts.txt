@@ -62,3 +62,11 @@ graphs/20251105_bramble_bank_wind.png
 
 Don't run make_graph.pl if the corresponding image file already exists.
 
+mv ~/.ssh/id_ed25519 ~/.ssh/id_ed25519_old 2>/dev/null; \
+mv ~/.ssh/id_ed25519.pub ~/.ssh/id_ed25519_old.pub 2>/dev/null; \
+ssh-keygen -t ed25519 -C "ray.russell@gmail.com" -f ~/.ssh/id_ed25519 -N ""; \
+eval "$(ssh-agent -s)"; \
+ssh-add ~/.ssh/id_ed25519; \
+echo "✅ New SSH key generated and added to agent!"; \
+echo "👇 Copy this key and paste it into GitHub (Settings → SSH and GPG keys → New SSH key):"; \
+cat ~/.ssh/id_ed25519.pub

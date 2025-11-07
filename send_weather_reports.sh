@@ -1,41 +1,59 @@
-#!/usr/bin/bash
-# --- Bramble Pipeline + Git Auto-Commit + Telegram Notifier ---
+#!/usr/bin/env bash
+# ============================================
+# send_weather_reports.sh
+#  - Runs bramble_pipeline.pl
+#  - Commits new/modified files
+#  - Pushes to GitHub
+#  - Sends Telegram notification
+#  - Works on macOS and Raspberry Pi
+# ============================================
 
-TOKEN="8341214958:AAGjCWs9gcZAiyCh9nZBMvfJcfHw-W9R6PQ"
-CHAT_ID="8282574082"
+set -euo pipefail
 
-PROJECT="/home/ray/projects/wind_graphs"
-PIPELINE="$PROJECT/bramble_pipeline.pl"
-OUTFILE="/tmp/bramble_full_output.txt"
+# --- Configuration ---
+PROJECT_DIR="$HOME/projects/wind_graphs"
+VENV_DIR="$PROJECT_DIR/venv"
+PYTHON="$VENV_DIR/bin/python"
+LOGFILE="$PROJECT_DIR/cron_weather.log"
+TELEGRAM_BOT_TOKEN="YOUR_TELEGRAM_BOT_TOKEN"
+CHAT_ID="YOUR_CHAT_ID"
 
-cd "$PROJECT"
+cd "$PROJECT_DIR" || { echo "❌ ERROR: Cannot cd to $PROJECT_DIR"; exit 1; }
 
-# Start log fresh
-{
-  echo "📅 $(date '+%Y-%m-%d %H:%M:%S')"
-  echo "🏗️  Running Bramble pipeline..."
-  echo "-----------------------------------------------"
-} > "$OUTFILE"
-
-# Run the pipeline and capture *all* output
-/usr/bin/perl "$PIPELINE" >> "$OUTFILE" 2>&1
-echo "-----------------------------------------------" >> "$OUTFILE"
-echo "🗂️  Running Git commit and push..." >> "$OUTFILE"
-
-# Commit and push any changes
-if ! git diff-index --quiet HEAD --; then
-  git add -A >> "$OUTFILE" 2>&1
-  git commit -m "Automated update from Raspberry Pi on $(date '+%Y-%m-%d %H:%M:%S')" >> "$OUTFILE" 2>&1
-  git push origin main >> "$OUTFILE" 2>&1
-  echo "✅ Changes committed and pushed to GitHub." >> "$OUTFILE"
-else
-  echo "ℹ️  No changes detected. Nothing to commit." >> "$OUTFILE"
+# --- Ensure virtual environment exists ---
+if [ ! -d "$VENV_DIR" ]; then
+  echo "Creating Python venv at $VENV_DIR" >> "$LOGFILE"
+  python3 -m venv "$VENV_DIR"
 fi
 
-echo "-----------------------------------------------" >> "$OUTFILE"
-echo "✅ All tasks completed successfully." >> "$OUTFILE"
+# --- Activate virtual environment ---
+source "$VENV_DIR/bin/activate"
 
-# Send the *entire* output file to Telegram
-curl -s -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
-  -d chat_id="$CHAT_ID" \
-  --data-urlencode text="$(cat "$OUTFILE")" > /dev/null
+# --- Install dependencies if missing ---
+pip install -q --upgrade pip
+pip install -q pandas matplotlib numpy
+
+echo "-------------------------------------------" >> "$LOGFILE"
+echo "Run started: $(date)" >> "$LOGFILE"
+
+# --- Run pipeline ---
+echo "➡️ Running bramble_pipeline.pl..." >> "$LOGFILE"
+perl bramble_pipeline.pl >> "$LOGFILE" 2>&1
+
+# --- Commit and push changes ---
+echo "➡️ Committing and pushing updates..." >> "$LOGFILE"
+git add -A >> "$LOGFILE" 2>&1
+git commit -m "Automated update on $(date '+%Y-%m-%d %H:%M:%S')" >> "$LOGFILE" 2>&1 || echo "No changes to commit" >> "$LOGFILE"
+git push origin main >> "$LOGFILE" 2>&1 || echo "Git push failed" >> "$LOGFILE"
+
+# --- Telegram notification ---
+MESSAGE="✅ Weather update completed on $(hostname) at $(date '+%H:%M:%S')"
+curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+     -d chat_id="${CHAT_ID}" \
+     -d text="${MESSAGE}" >> "$LOGFILE" 2>&1
+
+echo "Run completed: $(date)" >> "$LOGFILE"
+echo "-------------------------------------------" >> "$LOGFILE"
+
+deactivate
+exit 0
