@@ -473,27 +473,18 @@ def main(argv: List[str]) -> int:
 
     title = f"{date_str} Bramble Bank wind"
     plot_series(forecast_df, actual_df, title, start=date_window_start, end=date_window_end)
+
+    # --- Display interactively if no_show is False ---
+    if not no_show:
+        try:
+            plt.show()
+        except KeyboardInterrupt:
+            print("Interrupted while showing plot.", file=sys.stderr)
+            plt.close("all")
+            return 1
+
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv))
-
-
-import sys
-
-# --- Handle output display and saving ---
-try:
-    fig.savefig(out_png, dpi=150, bbox_inches="tight")
-    print(f"Saved plot to {out_png}")
-except Exception as e:
-    print(f"[error] Failed to save figure: {e}")
-
-# Check for --no-show flag
-if "--no-show" in sys.argv:
-    plt.close(fig)
-    print("[info] Running in no-show mode, skipping display.")
-else:
-    print("[info] Showing plot window...")
-    plt.show()
-
