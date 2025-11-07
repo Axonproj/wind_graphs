@@ -25,3 +25,14 @@ hint: See the 'Note about fast-forwards' in 'git push --help' for details.
 Git push failed
 {"ok":false,"error_code":404,"description":"Not Found"}Run completed: Fri  7 Nov 2025 15:35:06 GMT
 -------------------------------------------
+-------------------------------------------
+Run started: Fri  7 Nov 2025 15:41:49 GMT
+➡️ Running bramble_pipeline.pl...
+[info] Today:     20251107
+[info] Yesterday: 20251106
+[info] Tomorrow:  20251108
+[ok] Actual file already exists: data/20251106_bramble_actual.csv
+[ok] Forecast file already exists: data/20251108_bramble_forecast.json
+Check 'data' for outputs.
+[skip] Graph already exists: graphs/20251106_bramble_bank_wind.png
+➡️ Committing and pushing updates...
