@@ -107,22 +107,17 @@ echo "➡️ Modified files:" >> "$LOGFILE"
 echo "$MODIFIED_FILES" >> "$LOGFILE"
 
 
-# --- Telegram notification with file list ---
-ENCODED_FILES=$(printf "%s" "$MODIFIED_FILES" | perl -pe 's/\n/%0A/g')
-MESSAGE="✅ Weather update completed on $(hostname) at $(date '+%H:%M:%S')%0A%0AFiles changed:%0A$ENCODED_FILES"
+# --- Telegram summary + log tail combined into one message ---
+LOG_TAIL=$(cat "$LOGFILE" | tail -c 3000)  # include last ~3KB to stay under Telegram limit
+ENCODED_LOG=$(printf "%s" "$LOG_TAIL" | perl -pe 's/%/%25/g; s/\n/%0A/g; s/\r//g')
+
+SUMMARY_MSG="✅ Weather update completed on $(hostname) at $(date '+%H:%M:%S')%0A%0A\
+Files changed:%0A$(printf '%s' "$MODIFIED_FILES" | perl -pe 's/\n/%0A/g')%0A%0A\
+📝 Last part of log:%0A%0A$ENCODED_LOG"
 
 curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
      -d chat_id="${CHAT_ID}" \
-     -d text="${MESSAGE}" >> "$LOGFILE" 2>&1
-
-# --- Send logfile contents as inline Telegram message (Option 1) ---
-LOG_CONTENT=$(cat "$LOGFILE" | tail -c 3500)  # send last ~3500 chars
-ENCODED_LOG=$(printf "%s" "$LOG_CONTENT" | perl -pe 's/%/%25/g; s/\n/%0A/g; s/\r//g')
-
-curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-     -d chat_id="${CHAT_ID}" \
-     -d text="📝 Log output from $(hostname):%0A%0A$ENCODED_LOG" \
-     >> "$LOGFILE" 2>&1
+     -d text="${SUMMARY_MSG}" >> "$LOGFILE" 2>&1
 
 echo "Run completed: $(date)" >> "$LOGFILE"
 echo "-------------------------------------------" >> "$LOGFILE"
