@@ -115,6 +115,15 @@ curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" 
      -d chat_id="${CHAT_ID}" \
      -d text="${MESSAGE}" >> "$LOGFILE" 2>&1
 
+# --- Send logfile contents as inline Telegram message (Option 1) ---
+LOG_CONTENT=$(cat "$LOGFILE" | tail -c 3500)  # send last ~3500 chars
+ENCODED_LOG=$(printf "%s" "$LOG_CONTENT" | perl -pe 's/%/%25/g; s/\n/%0A/g; s/\r//g')
+
+curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+     -d chat_id="${CHAT_ID}" \
+     -d text="📝 Log output from $(hostname):%0A%0A$ENCODED_LOG" \
+     >> "$LOGFILE" 2>&1
+
 echo "Run completed: $(date)" >> "$LOGFILE"
 echo "-------------------------------------------" >> "$LOGFILE"
 
