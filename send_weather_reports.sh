@@ -17,7 +17,7 @@ PYTHON="$VENV_DIR/bin/python"
 LOGFILE="$PROJECT_DIR/cron_weather.log"
 TELEGRAM_BOT_TOKEN=8341214958:AAGjCWs9gcZAiyCh9nZBMvfJcfHw-W9R6PQ
 CHAT_ID=8282574082
-
+#
 cd "$PROJECT_DIR" || { echo "❌ ERROR: Cannot cd to $PROJECT_DIR"; exit 1; }
 
 # --- Ensure virtual environment exists ---
