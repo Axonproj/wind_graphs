@@ -59,6 +59,8 @@ if [ -d "graphs" ]; then
   git add graphs >> "$LOGFILE" 2>&1
 fi
 
+git add "index.html"
+
 # Commit only if there are changes
 if ! git diff --cached --quiet; then
   git commit -m "Automated update (data + graphs) on $(date '+%Y-%m-%d %H:%M:%S')" >> "$LOGFILE" 2>&1
