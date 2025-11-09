@@ -115,7 +115,7 @@ if (-e $forecast_json) {
     unless (-x $FORECAST_SCRIPT) {
         die "[error] Forecast script not found or not executable: $FORECAST_SCRIPT\n";
     }
-    my $rc = system($FORECAST_SCRIPT);
+    my $rc = system("bash", $FORECAST_SCRIPT);
     if ($rc == 0) {
         if (-e $forecast_json) {
             say "[ok] Forecast saved to: $forecast_json";
