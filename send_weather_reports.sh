@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/bash
 # ============================================
 # send_weather_reports.sh
 #  - Runs bramble_pipeline.pl
@@ -11,7 +11,7 @@
 set -euo pipefail
 
 # --- Configuration ---
-PROJECT_DIR="$HOME/projects/wind_graphs"
+PROJECT_DIR="/home/ray/projects/wind_graphs"
 VENV_DIR="$PROJECT_DIR/venv"
 PYTHON="$VENV_DIR/bin/python"
 LOGFILE="$PROJECT_DIR/cron_weather.log"
