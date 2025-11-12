@@ -15,8 +15,6 @@ PROJECT_DIR="$HOME/projects/wind_graphs"
 VENV_DIR="$PROJECT_DIR/venv"
 PYTHON="$VENV_DIR/bin/python"
 LOGFILE="$PROJECT_DIR/cron_weather.log"
-TELEGRAM_BOT_TOKEN=8341214958:AAGjCWs9gcZAiyCh9nZBMvfJcfHw-W9R6PQ
-CHAT_ID=8282574082
 #
 cd "$PROJECT_DIR" || { echo "❌ ERROR: Cannot cd to $PROJECT_DIR"; exit 1; }
 
@@ -37,6 +35,12 @@ source "$VENV_DIR/bin/activate"
 # --- Install dependencies if missing ---
 pip install -q --upgrade pip
 pip install -q pandas matplotlib numpy
+
+# Optionally load env file if present
+[ -f "/etc/wind_graphs.env" ] && set -a && . /etc/wind_graphs.env && set +a
+
+: "${TELEGRAM_BOT_TOKEN:?set TELEGRAM_BOT_TOKEN}"
+: "${CHAT_ID:?set CHAT_ID}"
 
 echo "-------------------------------------------" >> "$LOGFILE"
 echo "Run started: $(date)" >> "$LOGFILE"
@@ -73,23 +77,23 @@ fi
 #
 # No, the push is too likely to fail.
 #
-#rrecho "➡️ Pushing changes to GitHub..." >> "$LOGFILE"
-#rr
-#rr    if ! git push origin main >> "$LOGFILE" 2>&1; then
-#rr      echo "❌ Push failed — remote has diverged. Please resolve manually." >> "$LOGFILE"
-#rr      echo "Stopping script to avoid overwriting remote history." >> "$LOGFILE"
-#rr      # --- Telegram failure alert ---
-#rr      ALERT_MSG="🚨 Git push failed on $(hostname) at $(date '+%H:%M:%S')%0A%0A\
-#rrThe remote has diverged a    nd requires manual resolution.%0A\
-#rrRun:%0A%60cd ~/projects/wind_   graphs && git pull origin main%60%0A\
-#rrThen resolve conflicts and push        manually."
-#rr      
-#rr      curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-#rr           -d chat_id="${CHAT_ID}" \
-#rr           -d text="${ALERT_MSG}" >> "$LOGFILE" 2>&1
-#rr      
-#rr      exit 1
-#rr    fi
+echo "➡️ Pushing changes to GitHub..." >> "$LOGFILE"
+
+    if ! git push origin main >> "$LOGFILE" 2>&1; then
+      echo "❌ Push failed — remote has diverged. Please resolve manually." >> "$LOGFILE"
+      echo "Stopping script to avoid overwriting remote history." >> "$LOGFILE"
+      # --- Telegram failure alert ---
+      ALERT_MSG="🚨 Git push failed on $(hostname) at $(date '+%H:%M:%S')%0A%0A\
+The remote has diverged a    nd requires manual resolution.%0A\
+Run:%0A%60cd ~/projects/wind_   graphs && git pull origin main%60%0A\
+Then resolve conflicts and push        manually."
+      
+      curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+           -d chat_id="${CHAT_ID}" \
+           -d text="${ALERT_MSG}" >> "$LOGFILE" 2>&1
+      
+      exit 1
+    fi
 
 
 # --- Determine modified files in this commit ---
