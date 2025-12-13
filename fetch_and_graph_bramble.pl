@@ -10,7 +10,7 @@ use Text::CSV;
 
 # --- Config
 my $DATA_DIR        = "data";
-my $FORECAST_SCRIPT = "./get_forecast.sh";
+my $FORECAST_SCRIPT = "./fetch_metoffice_forecast.sh";
 
 sub say { print @_, "\n" }
 
@@ -136,8 +136,8 @@ my $graph_file = File::Spec->catfile("graphs", "${yesterday}_bramble_bank_wind.p
 if (-e $graph_file) {
     say "[skip] Graph already exists: $graph_file";
 } else {
-    say "[run] Generating graph using make_graph.py: $graph_file";
-    my $cmd = "python3 make_graph.py $yesterday --no-show";
+    say "[run] Generating graph using plot_wind_comparison.py: $graph_file";
+    my $cmd = "python3 plot_wind_comparison.py $yesterday --no-show";
     my $exit_status = system($cmd);
 
     if ($exit_status == 0) {
