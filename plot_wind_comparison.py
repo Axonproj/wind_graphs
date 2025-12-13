@@ -399,8 +399,7 @@ def plot_series(forecast: pd.DataFrame, actual: pd.DataFrame, title: str, start=
     actual = smooth_data(actual)
     # ---------------------------------------------------
 
-    # A4 landscape: 11.69" × 8.27"
-    fig, ax = plt.subplots(figsize=(11.69, 8.27))
+    fig, ax = plt.subplots(figsize=(11, 6))
 
     # --- Day/night shading ---
     if start is not None and end is not None:
