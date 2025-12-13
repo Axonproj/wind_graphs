@@ -31,6 +31,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import signal
+from astral import LocationInfo
+from astral.sun import sun
+from datetime import datetime
 
 
 
@@ -364,7 +367,7 @@ def plot_series(forecast: pd.DataFrame, actual: pd.DataFrame, title: str, start=
     from datetime import datetime, time
 
     # --- Smoothing function for rolling average ---
-    def smooth_data(df, window_hours=2):
+    def smooth_data(df, window_hours=4):
         """Apply rolling average to SPEED and GUST columns."""
         if df is None or df.empty:
             return df
@@ -403,42 +406,41 @@ def plot_series(forecast: pd.DataFrame, actual: pd.DataFrame, title: str, start=
 
     # --- Day/night shading ---
     if start is not None and end is not None:
-        # Approximate sunrise/sunset for UK in winter/summer
-        # Simple heuristic: night is 22:00-06:00 winter, 21:00-05:00 summer
-        current_time = start
-        month = start.month
-        if 4 <= month <= 9:  # Summer
-            night_start_hour, night_end_hour = 21, 5
-        else:  # Winter
-            night_start_hour, night_end_hour = 22, 6
+        # Calculate actual sunrise/sunset for Cowes, Isle of Wight
+        cowes = LocationInfo("Cowes", "England", "Europe/London", 50.76, -1.30)
+        date_local = start.date()
+        s = sun(cowes.observer, date=date_local, tzinfo=start.tzinfo)
+        sunrise = s["sunrise"]
+        sunset = s["sunset"]
 
-        while current_time < end:
-            hour = current_time.hour
-            next_hour = current_time + pd.Timedelta(hours=1)
-            if hour >= night_start_hour or hour < night_end_hour:
-                ax.axvspan(current_time, min(next_hour, end), alpha=0.05, color='gray', zorder=0)
-            current_time = next_hour
+        # Shade night periods (before sunrise and after sunset)
+        # Before sunrise
+        if start < sunrise:
+            ax.axvspan(start, min(sunrise, end), alpha=0.12, color='gray', zorder=0)
+        # After sunset
+        if end > sunset:
+            ax.axvspan(max(sunset, start), end, alpha=0.12, color='gray', zorder=0)
 
-    # Forecast: green (unchanged)
+    # Forecast: green
     if forecast is not None and not forecast.empty:
-        ax.plot(forecast["TIME"], forecast["SPEED"], linestyle="-", label="Forecast wind", color="green", linewidth=1.5)
+        ax.plot(forecast["TIME"], forecast["SPEED"], linestyle="-", label="Forecast wind", color="green", linewidth=0.75)
         if "GUST" in forecast.columns and forecast["GUST"].notna().any():
-            ax.plot(forecast["TIME"], forecast["GUST"], linestyle="--", label="Forecast gust", color="green", linewidth=1.5)
+            ax.plot(forecast["TIME"], forecast["GUST"], linestyle="--", label="Forecast gust", color="green", linewidth=0.75)
 
-    # Actual: faint raw data + bold smoothed curves
+    # Actual: faint raw data + smoothed curves
     if actual is not None and not actual.empty:
         # Faint raw data
-        ax.plot(actual["TIME"], actual["SPEED"], linestyle="-", color="blue", alpha=0.3, linewidth=1, zorder=2)
+        ax.plot(actual["TIME"], actual["SPEED"], linestyle="-", color="blue", alpha=0.3, linewidth=0.5, zorder=2)
         if "GUST" in actual.columns and actual["GUST"].notna().any():
-            ax.plot(actual["TIME"], actual["GUST"], linestyle="--", color="blue", alpha=0.3, linewidth=1, zorder=2)
+            ax.plot(actual["TIME"], actual["GUST"], linestyle="--", color="blue", alpha=0.3, linewidth=0.5, zorder=2)
 
-        # Bold smoothed curves
+        # Smoothed curves
         if "SPEED_SMOOTH" in actual.columns:
             ax.plot(actual["TIME"], actual["SPEED_SMOOTH"], linestyle="-", label="Actual wind",
-                   color="blue", linewidth=2.5, zorder=3)
+                   color="blue", linewidth=0.75, zorder=3)
         if "GUST_SMOOTH" in actual.columns and actual["GUST_SMOOTH"].notna().any():
             ax.plot(actual["TIME"], actual["GUST_SMOOTH"], linestyle="--", label="Actual gust",
-                   color="blue", linewidth=2.5, zorder=3)
+                   color="blue", linewidth=0.75, zorder=3)
 
     # --- Wind direction arrows (if direction data available) ---
     # Arrows point FROM where wind is coming (meteorological convention)
@@ -452,8 +454,17 @@ def plot_series(forecast: pd.DataFrame, actual: pd.DataFrame, title: str, start=
             direction_data = direction_data[direction_data["TIME"].dt.minute == 0]
 
             ymin, ymax = ax.get_ylim()
-            arrow_y_base = ymin + (ymax - ymin) * 0.08  # Position arrows near bottom of plot
-            arrow_length_pts = 30  # Arrow length in display points (pixels at 72 dpi)
+            # Position arrows so a 180° arrow tip is just above x-axis
+            # Arrow is 60pts long, centered, so tip extends 30pts down from center
+            # Convert 30 display points to data coordinates to find proper offset
+            dummy_display = ax.transData.transform((0, ymin))
+            offset_display = ax.transData.transform((0, ymin + (ymax - ymin) * 0.05))
+            pts_per_data_unit = (offset_display[1] - dummy_display[1]) / ((ymax - ymin) * 0.05)
+            arrow_length_data = 60 / pts_per_data_unit if pts_per_data_unit > 0 else (ymax - ymin) * 0.1
+
+            # Position center so tip of downward arrow is just above x-axis
+            arrow_y_base = ymin + (arrow_length_data / 2) + (ymax - ymin) * 0.01
+            arrow_length_pts = 60  # Arrow length in display points (pixels at 72 dpi)
 
             for _, row in direction_data.iterrows():
                 # windDirectionFrom10m gives direction wind is FROM
@@ -466,22 +477,24 @@ def plot_series(forecast: pd.DataFrame, actual: pd.DataFrame, title: str, start=
                 dx_pts = np.cos(math_angle) * arrow_length_pts
                 dy_pts = np.sin(math_angle) * arrow_length_pts
 
-                # Convert tail position from data to display coordinates
+                # Convert center position from data to display coordinates
                 time_num = mdates.date2num(row["TIME"])
-                tail_display = ax.transData.transform((time_num, arrow_y_base))
+                center_display = ax.transData.transform((time_num, arrow_y_base))
 
-                # Add offset in display coordinates
-                head_display = (tail_display[0] + dx_pts, tail_display[1] + dy_pts)
+                # Calculate tail and head positions centered on the time position
+                tail_display = (center_display[0] - dx_pts/2, center_display[1] - dy_pts/2)
+                head_display = (center_display[0] + dx_pts/2, center_display[1] + dy_pts/2)
 
-                # Convert head back to data coordinates
+                # Convert back to data coordinates
+                tail_data = ax.transData.inverted().transform(tail_display)
                 head_data = ax.transData.inverted().transform(head_display)
 
                 # Draw arrow pointing FROM where wind comes
                 ax.annotate('',
                            xy=head_data,  # Head position in data coords
-                           xytext=(time_num, arrow_y_base),  # Tail position in data coords
+                           xytext=tail_data,  # Tail position in data coords
                            arrowprops=dict(arrowstyle='->', color='darkgreen',
-                                         lw=2, alpha=0.8, mutation_scale=15),
+                                         lw=0.75, alpha=0.8, mutation_scale=15),
                            zorder=10)
 
     # Format X axis (24h window and HH:MM labels)
