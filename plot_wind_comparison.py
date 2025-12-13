@@ -399,7 +399,8 @@ def plot_series(forecast: pd.DataFrame, actual: pd.DataFrame, title: str, start=
     actual = smooth_data(actual)
     # ---------------------------------------------------
 
-    fig, ax = plt.subplots(figsize=(11, 6))
+    # A4 landscape: 11.69" × 8.27"
+    fig, ax = plt.subplots(figsize=(11.69, 8.27))
 
     # --- Day/night shading ---
     if start is not None and end is not None:
@@ -441,7 +442,7 @@ def plot_series(forecast: pd.DataFrame, actual: pd.DataFrame, title: str, start=
                    color="blue", linewidth=2.5, zorder=3)
 
     # --- Wind direction arrows (if direction data available) ---
-    # To enable: add 'windDirectionFrom10m' to get_forecast.pl data capture
+    # Arrows point FROM where wind is coming (meteorological convention)
     if forecast is not None and not forecast.empty:
         # Check for direction column (various possible names)
         dir_col = _pick_col(forecast, ["DIRECTION", "DIR", "windDirectionFrom10m", "direction", "wind_dir"])
@@ -452,28 +453,30 @@ def plot_series(forecast: pd.DataFrame, actual: pd.DataFrame, title: str, start=
             direction_data = direction_data[direction_data["TIME"].dt.minute == 0]
 
             ymin, ymax = ax.get_ylim()
-            arrow_y = ymax * 0.92  # Position arrows near top of plot
+            arrow_y_base = ymin + (ymax - ymin) * 0.08  # Position arrows near bottom of plot
+            arrow_length = (ymax - ymin) * 0.05  # Fixed arrow length for all directions
 
             for _, row in direction_data.iterrows():
-                # Convert meteorological direction (from) to mathematical angle
-                # Met direction: 0° = North (from), 90° = East (from)
-                # We want arrow pointing TO where wind is going
+                # windDirectionFrom10m gives direction wind is FROM
+                # We reverse it to show where wind is blowing TO
+                # E.g., wind from North (0°) → arrow points South (180°)
                 met_dir = row[dir_col]
-                # Reverse direction (wind from N goes to S)
-                arrow_angle = (met_dir + 180) % 360
-                # Convert to radians and adjust for matplotlib (0° = East, CCW)
-                math_angle = np.radians(90 - arrow_angle)
+                # Reverse direction: add 180° to point where wind is going
+                arrow_dir = (met_dir + 180) % 360
+                # Convert to mathematical angle (0° = East, 90° = North, CCW)
+                math_angle = np.radians(90 - arrow_dir)
 
-                # Arrow components - scale based on plot dimensions
-                arrow_length = (ymax - ymin) * 0.04
+                # Calculate arrow endpoint (all arrows same length)
                 dx = np.cos(math_angle) * arrow_length
                 dy = np.sin(math_angle) * arrow_length
 
-                # Use annotate instead of arrow for better control with datetime axes
-                ax.annotate('', xy=(mdates.date2num(row["TIME"]), arrow_y + dy),
-                           xytext=(mdates.date2num(row["TIME"]), arrow_y),
+                # Draw arrow pointing where wind is blowing TO
+                time_num = mdates.date2num(row["TIME"])
+                ax.annotate('',
+                           xy=(time_num + dx, arrow_y_base + dy),  # Head points in wind direction
+                           xytext=(time_num, arrow_y_base),  # Tail at center
                            arrowprops=dict(arrowstyle='->', color='darkgreen',
-                                         lw=1.5, alpha=0.7),
+                                         lw=2, alpha=0.8, mutation_scale=15),
                            zorder=10)
 
     # Format X axis (24h window and HH:MM labels)
