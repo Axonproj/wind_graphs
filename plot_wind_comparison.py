@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 """
-make_graph.py
+plot_wind_comparison.py
 
 Usage:
-  python3 make_graph.py yyyymmdd --no-show
+  python3 plot_wind_comparison.py yyyymmdd --no-show
 
 Given a date string in yyyymmdd format, this script reads two files in ./data:
 
-  1) {yyyymmdd}_forecast_bramble.json  -> forecast wind & gust for Bramble Bank
-  2) {yyyymmdd}_actual_bramble.csv     -> actual wind speed & gust for that day
+  1) {yyyymmdd}_bramble_forecast.json  -> forecast wind & gust for Bramble Bank
+  2) {yyyymmdd}_bramble_actual.csv     -> actual wind speed & gust for that day
 
-Plot rules:
-  - Wind:  solid line
-  - Gusts: dashed line
-  - Forecast lines: green
-  - Actual lines:   blue
+Plot features:
+  - Wind:  solid line | Gusts: dashed line
+  - Forecast: green lines
+  - Actual: faint raw (30% opacity) + bold smoothed (2-hour rolling avg)
+  - Wind direction arrows at hourly intervals (when data available)
+  - Day/night shading for context
+  - Beaufort scale bands and labels
 """
 
 from __future__ import annotations
@@ -67,6 +69,7 @@ TIME_KEYS  = [
 # Prefer 10 m products first
 WIND_KEYS  = ["windSpeed10m","wind","wind_speed","speed","wspd","WSPD"]
 GUST_KEYS  = ["windGustSpeed10m","gust","wind_gust","gst","GUST"]
+DIR_KEYS   = ["windDirectionFrom10m","direction","wind_direction","dir","DIR","wd"]
 
 LONDON_TZ = "Europe/London"
 
@@ -176,10 +179,11 @@ def _coerce_time_series(df: pd.DataFrame, time_col: Optional[str]) -> Optional[p
 
 
 def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Return a tidy dataframe with TIME (tz-aware), SPEED, GUST columns."""
+    """Return a tidy dataframe with TIME (tz-aware), SPEED, GUST, and optionally DIRECTION columns."""
     tcol = _pick_col(df, TIME_KEYS)
     wcol = _pick_col(df, WIND_KEYS)
     gcol = _pick_col(df, GUST_KEYS)
+    dcol = _pick_col(df, DIR_KEYS)
 
     tseries = _coerce_time_series(df, tcol)
     if tseries is None or tseries.isna().all():
@@ -192,6 +196,7 @@ def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
         "SPEED": pd.to_numeric(df[wcol], errors="coerce"),
     })
     out["GUST"] = pd.to_numeric(df[gcol], errors="coerce") if gcol else np.nan
+    out["DIRECTION"] = pd.to_numeric(df[dcol], errors="coerce") if dcol else np.nan
     out = out.dropna(subset=["TIME"])
     out = out.sort_values("TIME")
     return out
@@ -356,6 +361,27 @@ def _apply_time_axis_format(ax: plt.Axes, forecast: pd.DataFrame, actual: pd.Dat
 def plot_series(forecast: pd.DataFrame, actual: pd.DataFrame, title: str, start=None, end=None) -> None:
     import numpy as np
     import matplotlib.pyplot as plt
+    from datetime import datetime, time
+
+    # --- Smoothing function for rolling average ---
+    def smooth_data(df, window_hours=2):
+        """Apply rolling average to SPEED and GUST columns."""
+        if df is None or df.empty:
+            return df
+        smoothed = df.copy()
+        # Calculate window size based on time intervals
+        if len(df) > 1:
+            time_diff = (df["TIME"].iloc[1] - df["TIME"].iloc[0]).total_seconds() / 3600
+            window_size = max(1, int(window_hours / time_diff))
+        else:
+            window_size = 1
+
+        for col in ["SPEED", "GUST"]:
+            if col in smoothed.columns:
+                smoothed[f"{col}_SMOOTH"] = smoothed[col].rolling(
+                    window=window_size, center=True, min_periods=1
+                ).mean()
+        return smoothed
 
     # --- Ensure gaps where values are 0 or near 0 ---
     def mask_zeros(df):
@@ -368,21 +394,87 @@ def plot_series(forecast: pd.DataFrame, actual: pd.DataFrame, title: str, start=
 
     forecast = mask_zeros(forecast)
     actual = mask_zeros(actual)
+
+    # Apply smoothing to actual data
+    actual = smooth_data(actual)
     # ---------------------------------------------------
 
     fig, ax = plt.subplots(figsize=(11, 6))
 
-    # Forecast: green
-    if forecast is not None and not forecast.empty:
-        ax.plot(forecast["TIME"], forecast["SPEED"], linestyle="-", label="Forecast wind", color="green")
-        if "GUST" in forecast.columns and forecast["GUST"].notna().any():
-            ax.plot(forecast["TIME"], forecast["GUST"], linestyle="--", label="Forecast gust", color="green")
+    # --- Day/night shading ---
+    if start is not None and end is not None:
+        # Approximate sunrise/sunset for UK in winter/summer
+        # Simple heuristic: night is 22:00-06:00 winter, 21:00-05:00 summer
+        current_time = start
+        month = start.month
+        if 4 <= month <= 9:  # Summer
+            night_start_hour, night_end_hour = 21, 5
+        else:  # Winter
+            night_start_hour, night_end_hour = 22, 6
 
-    # Actual: blue
+        while current_time < end:
+            hour = current_time.hour
+            next_hour = current_time + pd.Timedelta(hours=1)
+            if hour >= night_start_hour or hour < night_end_hour:
+                ax.axvspan(current_time, min(next_hour, end), alpha=0.05, color='gray', zorder=0)
+            current_time = next_hour
+
+    # Forecast: green (unchanged)
+    if forecast is not None and not forecast.empty:
+        ax.plot(forecast["TIME"], forecast["SPEED"], linestyle="-", label="Forecast wind", color="green", linewidth=1.5)
+        if "GUST" in forecast.columns and forecast["GUST"].notna().any():
+            ax.plot(forecast["TIME"], forecast["GUST"], linestyle="--", label="Forecast gust", color="green", linewidth=1.5)
+
+    # Actual: faint raw data + bold smoothed curves
     if actual is not None and not actual.empty:
-        ax.plot(actual["TIME"], actual["SPEED"], linestyle="-", label="Actual wind", color="blue")
+        # Faint raw data
+        ax.plot(actual["TIME"], actual["SPEED"], linestyle="-", color="blue", alpha=0.3, linewidth=1, zorder=2)
         if "GUST" in actual.columns and actual["GUST"].notna().any():
-            ax.plot(actual["TIME"], actual["GUST"], linestyle="--", label="Actual gust", color="blue")
+            ax.plot(actual["TIME"], actual["GUST"], linestyle="--", color="blue", alpha=0.3, linewidth=1, zorder=2)
+
+        # Bold smoothed curves
+        if "SPEED_SMOOTH" in actual.columns:
+            ax.plot(actual["TIME"], actual["SPEED_SMOOTH"], linestyle="-", label="Actual wind",
+                   color="blue", linewidth=2.5, zorder=3)
+        if "GUST_SMOOTH" in actual.columns and actual["GUST_SMOOTH"].notna().any():
+            ax.plot(actual["TIME"], actual["GUST_SMOOTH"], linestyle="--", label="Actual gust",
+                   color="blue", linewidth=2.5, zorder=3)
+
+    # --- Wind direction arrows (if direction data available) ---
+    # To enable: add 'windDirectionFrom10m' to get_forecast.pl data capture
+    if forecast is not None and not forecast.empty:
+        # Check for direction column (various possible names)
+        dir_col = _pick_col(forecast, ["DIRECTION", "DIR", "windDirectionFrom10m", "direction", "wind_dir"])
+        if dir_col and dir_col in forecast.columns:
+            # Plot arrows at hourly intervals
+            direction_data = forecast[forecast[dir_col].notna()].copy()
+            # Sample every hour to avoid clutter
+            direction_data = direction_data[direction_data["TIME"].dt.minute == 0]
+
+            ymin, ymax = ax.get_ylim()
+            arrow_y = ymax * 0.92  # Position arrows near top of plot
+
+            for _, row in direction_data.iterrows():
+                # Convert meteorological direction (from) to mathematical angle
+                # Met direction: 0° = North (from), 90° = East (from)
+                # We want arrow pointing TO where wind is going
+                met_dir = row[dir_col]
+                # Reverse direction (wind from N goes to S)
+                arrow_angle = (met_dir + 180) % 360
+                # Convert to radians and adjust for matplotlib (0° = East, CCW)
+                math_angle = np.radians(90 - arrow_angle)
+
+                # Arrow components - scale based on plot dimensions
+                arrow_length = (ymax - ymin) * 0.04
+                dx = np.cos(math_angle) * arrow_length
+                dy = np.sin(math_angle) * arrow_length
+
+                # Use annotate instead of arrow for better control with datetime axes
+                ax.annotate('', xy=(mdates.date2num(row["TIME"]), arrow_y + dy),
+                           xytext=(mdates.date2num(row["TIME"]), arrow_y),
+                           arrowprops=dict(arrowstyle='->', color='darkgreen',
+                                         lw=1.5, alpha=0.7),
+                           zorder=10)
 
     # Format X axis (24h window and HH:MM labels)
     _apply_time_axis_format(ax, forecast, actual, start=start, end=end)
@@ -423,7 +515,7 @@ def plot_series(forecast: pd.DataFrame, actual: pd.DataFrame, title: str, start=
 
 def main(argv: List[str]) -> int:
     if len(argv) < 2 or len(argv) > 3:
-        print("Usage: python3 make_graph.py yyyymmdd [--no-show]", file=sys.stderr)
+        print("Usage: python3 plot_wind_comparison.py yyyymmdd [--no-show]", file=sys.stderr)
         return 2
 
     date_str = argv[1]

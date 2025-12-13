@@ -1,3 +1,4 @@
+#!/usr/bin/env perl
 # 2023 (C) Crown Copyright, Met Office. All rights reserved.
 #
 # This file is part of Weather DataHub and is released under the

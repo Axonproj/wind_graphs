@@ -1,7 +1,7 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 # ============================================
-# send_weather_reports.sh
-#  - Runs bramble_pipeline.pl
+# run_daily_update.sh
+#  - Runs fetch_and_graph_bramble.pl
 #  - Commits new/modified files
 #  - Pushes to GitHub
 #  - Sends Telegram notification
@@ -46,8 +46,8 @@ echo "-------------------------------------------" >> "$LOGFILE"
 echo "Run started: $(date)" >> "$LOGFILE"
 
 # --- Run pipeline ---
-echo "➡️ Running bramble_pipeline.pl..." >> "$LOGFILE"
-perl bramble_pipeline.pl >> "$LOGFILE" 2>&1
+echo "➡️ Running fetch_and_graph_bramble.pl..." >> "$LOGFILE"
+perl fetch_and_graph_bramble.pl >> "$LOGFILE" 2>&1
 
 
 
