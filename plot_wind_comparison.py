@@ -454,27 +454,33 @@ def plot_series(forecast: pd.DataFrame, actual: pd.DataFrame, title: str, start=
 
             ymin, ymax = ax.get_ylim()
             arrow_y_base = ymin + (ymax - ymin) * 0.08  # Position arrows near bottom of plot
-            arrow_length = (ymax - ymin) * 0.05  # Fixed arrow length for all directions
+            arrow_length_pts = 30  # Arrow length in display points (pixels at 72 dpi)
 
             for _, row in direction_data.iterrows():
                 # windDirectionFrom10m gives direction wind is FROM
-                # We reverse it to show where wind is blowing TO
-                # E.g., wind from North (0°) → arrow points South (180°)
+                # Arrow should point FROM that direction (meteorological convention)
                 met_dir = row[dir_col]
-                # Reverse direction: add 180° to point where wind is going
-                arrow_dir = (met_dir + 180) % 360
                 # Convert to mathematical angle (0° = East, 90° = North, CCW)
-                math_angle = np.radians(90 - arrow_dir)
+                math_angle = np.radians(90 - met_dir)
 
-                # Calculate arrow endpoint (all arrows same length)
-                dx = np.cos(math_angle) * arrow_length
-                dy = np.sin(math_angle) * arrow_length
+                # Calculate arrow offset in display coordinates (points)
+                dx_pts = np.cos(math_angle) * arrow_length_pts
+                dy_pts = np.sin(math_angle) * arrow_length_pts
 
-                # Draw arrow pointing where wind is blowing TO
+                # Convert tail position from data to display coordinates
                 time_num = mdates.date2num(row["TIME"])
+                tail_display = ax.transData.transform((time_num, arrow_y_base))
+
+                # Add offset in display coordinates
+                head_display = (tail_display[0] + dx_pts, tail_display[1] + dy_pts)
+
+                # Convert head back to data coordinates
+                head_data = ax.transData.inverted().transform(head_display)
+
+                # Draw arrow pointing FROM where wind comes
                 ax.annotate('',
-                           xy=(time_num + dx, arrow_y_base + dy),  # Head points in wind direction
-                           xytext=(time_num, arrow_y_base),  # Tail at center
+                           xy=head_data,  # Head position in data coords
+                           xytext=(time_num, arrow_y_base),  # Tail position in data coords
                            arrowprops=dict(arrowstyle='->', color='darkgreen',
                                          lw=2, alpha=0.8, mutation_scale=15),
                            zorder=10)
