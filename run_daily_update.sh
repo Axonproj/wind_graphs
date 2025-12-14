@@ -117,7 +117,7 @@ echo "$MODIFIED_FILES" >> "$LOGFILE"
 
 
 # --- Telegram summary + log tail combined into one message ---
-LOG_TAIL=$(cat "$LOGFILE" | tail -c 3000)  # include last ~3KB to stay under Telegram limit
+LOG_TAIL=$(cat "$LOGFILE" | tail -c 2000)  # include last ~2KB to stay under Telegram 4096 char limit
 ENCODED_LOG=$(printf "%s" "$LOG_TAIL" | perl -pe 's/%/%25/g; s/\n/%0A/g; s/\r//g')
 
 SUMMARY_MSG="✅ Weather update completed on $(hostname) at $(date '+%H:%M:%S')%0A%0A\
