@@ -455,16 +455,16 @@ def plot_series(forecast: pd.DataFrame, actual: pd.DataFrame, title: str, start=
 
             ymin, ymax = ax.get_ylim()
             # Position arrows so a 180° arrow tip is just above x-axis
-            # Arrow is 60pts long, centered, so tip extends 30pts down from center
-            # Convert 30 display points to data coordinates to find proper offset
+            # Arrow is 45pts long, centered, so tip extends 22.5pts down from center
+            # Convert display points to data coordinates to find proper offset
             dummy_display = ax.transData.transform((0, ymin))
             offset_display = ax.transData.transform((0, ymin + (ymax - ymin) * 0.05))
             pts_per_data_unit = (offset_display[1] - dummy_display[1]) / ((ymax - ymin) * 0.05)
-            arrow_length_data = 60 / pts_per_data_unit if pts_per_data_unit > 0 else (ymax - ymin) * 0.1
+            arrow_length_data = 45 / pts_per_data_unit if pts_per_data_unit > 0 else (ymax - ymin) * 0.1
 
             # Position center so tip of downward arrow is just above x-axis
             arrow_y_base = ymin + (arrow_length_data / 2) + (ymax - ymin) * 0.01
-            arrow_length_pts = 60  # Arrow length in display points (pixels at 72 dpi)
+            arrow_length_pts = 45  # Arrow length in display points (pixels at 72 dpi)
 
             for _, row in direction_data.iterrows():
                 # windDirectionFrom10m gives direction wind is FROM
