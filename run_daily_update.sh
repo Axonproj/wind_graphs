@@ -34,7 +34,7 @@ source "$VENV_DIR/bin/activate"
 
 # --- Install dependencies if missing ---
 pip install -q --upgrade pip
-pip install -q pandas matplotlib numpy
+pip install -q pandas matplotlib numpy astral
 
 # Optionally load env file if present
 [ -f "/etc/wind_graphs.env" ] && set -a && . /etc/wind_graphs.env && set +a
