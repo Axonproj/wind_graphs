@@ -11,6 +11,7 @@ use Text::CSV;
 # --- Config
 my $DATA_DIR        = "data";
 my $FORECAST_SCRIPT = "./fetch_metoffice_forecast.sh";
+my $OPENMETEO_SCRIPT = "./fetch_openmeteo_forecast.pl";
 
 sub say { print @_, "\n" }
 
@@ -126,6 +127,14 @@ if (-e $forecast_json) {
         my $exit = ($rc == -1) ? "failed to execute: $!" : "exit status " . ($rc >> 8);
         warn "[error] Forecast script failed ($exit). Forecast not updated.\n";
     }
+}
+
+# --- TOMORROW: get the AROME / ECMWF forecasts (Open-Meteo) if missing
+my $openmeteo_json = File::Spec->catfile($DATA_DIR, "${tomorrow}_bramble_openmeteo.json");
+if (-e $openmeteo_json) {
+    say "[ok] Open-Meteo forecast already exists: $openmeteo_json";
+} elsif (system("perl", $OPENMETEO_SCRIPT, $tomorrow) != 0) {
+    warn "[error] $OPENMETEO_SCRIPT failed. AROME/ECMWF forecast not saved.\n";
 }
 
 say "Check '$DATA_DIR' for outputs.";

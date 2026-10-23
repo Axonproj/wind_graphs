@@ -5,14 +5,18 @@ plot_wind_comparison.py
 Usage:
   python3 plot_wind_comparison.py yyyymmdd --no-show
 
-Given a date string in yyyymmdd format, this script reads two files in ./data:
+Given a date string in yyyymmdd format, this script reads these files in ./data:
 
-  1) {yyyymmdd}_bramble_forecast.json  -> forecast wind & gust for Bramble Bank
-  2) {yyyymmdd}_bramble_actual.csv     -> actual wind speed & gust for that day
+  1) {yyyymmdd}_bramble_forecast.json  -> Met Office forecast wind & gust (m/s, converted to knots)
+  2) {yyyymmdd}_bramble_openmeteo.json -> AROME and ECMWF forecasts (knots), if present
+  3) {yyyymmdd}_bramble_actual.csv     -> actual wind speed & gust for that day (knots)
+
+and replaces that date's rows in data/forecast_scores.csv with each forecast's
+error against the actuals (wind mean absolute error and bias, gust MAE).
 
 Plot features:
   - Wind:  solid line | Gusts: dashed line
-  - Forecast: green lines
+  - Forecasts: Met Office green, AROME orange, ECMWF purple; legend shows each one's wind error
   - Actual: faint raw (30% opacity) + bold smoothed (2-hour rolling avg)
   - Wind direction arrows at hourly intervals (when data available)
   - Day/night shading for context
@@ -75,6 +79,17 @@ GUST_KEYS  = ["windGustSpeed10m","gust","wind_gust","gst","GUST"]
 DIR_KEYS   = ["windDirectionFrom10m","direction","wind_direction","dir","DIR","wd"]
 
 LONDON_TZ = "Europe/London"
+
+MS_TO_KNOTS = 1.943844
+
+# Forecast sources: name -> (line colour, Open-Meteo model id or None for the Met Office)
+FORECAST_SOURCES = {
+    "Met Office": ("green",      None),
+    "AROME":      ("darkorange", "meteofrance_arome_france_hd"),
+    "ECMWF":      ("purple",     "ecmwf_ifs"),
+}
+
+SCORES_CSV = Path("data/forecast_scores.csv")
 
 
 
@@ -224,6 +239,12 @@ def read_forecast_json(path: Path) -> pd.DataFrame:
         if rows:
             df = pd.DataFrame(rows)
             df = _normalize_df(df)
+            # The Met Office gives m/s; everything else here is knots
+            wind_param = next((p.get("windSpeed10m") for p in data.get("parameters", [])
+                               if isinstance(p, dict) and "windSpeed10m" in p), None) or {}
+            if wind_param.get("unit", {}).get("symbol", {}).get("type", "m/s") == "m/s":
+                df["SPEED"] *= MS_TO_KNOTS
+                df["GUST"] *= MS_TO_KNOTS
             # Forecasts are commonly UTC: convert/ensure London tz
             try:
                 if df["TIME"].dt.tz is not None:
@@ -279,6 +300,66 @@ def read_forecast_json(path: Path) -> pd.DataFrame:
     return df
 
 
+def read_openmeteo_json(path: Path) -> dict:
+    """Return {source name: tidy forecast df} for each model in an Open-Meteo response (knots, UTC)."""
+    with path.open("r", encoding="utf-8") as f:
+        hourly = json.load(f)["hourly"]
+    times = pd.to_datetime(hourly["time"], utc=True).tz_convert(LONDON_TZ)
+    out = {}
+    for name, (_, model) in FORECAST_SOURCES.items():
+        if model is None or f"wind_speed_10m_{model}" not in hourly:
+            continue
+        df = pd.DataFrame({
+            "TIME": times,
+            "SPEED": pd.to_numeric(pd.Series(hourly[f"wind_speed_10m_{model}"]), errors="coerce"),
+            "GUST": pd.to_numeric(pd.Series(hourly.get(f"wind_gusts_10m_{model}")), errors="coerce"),
+            "DIRECTION": pd.to_numeric(pd.Series(hourly.get(f"wind_direction_10m_{model}")), errors="coerce"),
+        })
+        out[name] = df.dropna(subset=["SPEED"])
+    return out
+
+
+# --------------- scoring ---------------
+
+def score_forecast(forecast: pd.DataFrame, actual: pd.DataFrame) -> Optional[dict]:
+    """
+    Compare a forecast with the actuals at each forecast hour: wind against the
+    actual mean, gust against the actual max, both over the hour centred on it.
+    """
+    if forecast is None or forecast.empty or actual is None or actual.empty:
+        return None
+    a = actual.set_index("TIME").sort_index()
+    a = a[~a.index.duplicated()]
+    # Zeros are station dropouts, as in plot_series' mask_zeros
+    a_wind = a["SPEED"].where(a["SPEED"] > 0.1).rolling("60min", center=True).mean()
+    a_gust = a["GUST"].where(a["GUST"] > 0.1).rolling("60min", center=True).max()
+    f = forecast.set_index("TIME").sort_index()
+    tol = pd.Timedelta(minutes=5)
+    aw = a_wind.reindex(f.index, method="nearest", tolerance=tol)
+    ag = a_gust.reindex(f.index, method="nearest", tolerance=tol)
+    wind_err = (f["SPEED"] - aw).dropna()
+    gust_err = (f["GUST"] - ag).dropna()
+    if wind_err.empty:
+        return None
+    return {
+        "hours": len(wind_err),
+        "wind_mae_kt": round(wind_err.abs().mean(), 2),
+        "wind_bias_kt": round(wind_err.mean(), 2),
+        "gust_mae_kt": round(gust_err.abs().mean(), 2) if not gust_err.empty else np.nan,
+    }
+
+
+def save_scores(date_str: str, scores: dict) -> None:
+    """Replace this date's rows in SCORES_CSV with the given {source: score} rows."""
+    rows = [{"date": date_str, "source": name, **s} for name, s in scores.items() if s]
+    old = pd.read_csv(SCORES_CSV, dtype={"date": str}) if SCORES_CSV.exists() else pd.DataFrame()
+    if not old.empty:
+        old = old[old["date"] != date_str]
+    new = pd.concat([old, pd.DataFrame(rows)], ignore_index=True).sort_values(["date", "source"])
+    new.to_csv(SCORES_CSV, index=False)
+    print(f"Saved scores to {SCORES_CSV}")
+
+
 # --------------- actual CSV loader ---------------
 
 def read_actual_csv(path: Path) -> pd.DataFrame:
@@ -320,7 +401,8 @@ def _apply_time_axis_format(ax: plt.Axes, forecast: pd.DataFrame, actual: pd.Dat
             # Label the final tick as 24:00; others as HH:MM
             if abs(x - end_num) < 1e-9:
                 return "24:00"
-            return pd.to_datetime(mdates.num2date(x)).strftime("%H:%M")
+            # num2date gives UTC; label in London time so BST days run 00:00-24:00
+            return pd.Timestamp(mdates.num2date(x)).tz_convert(LONDON_TZ).strftime("%H:%M")
 
         ax.xaxis.set_major_formatter(mticker.FuncFormatter(fmt_func))
         return
@@ -361,7 +443,8 @@ def _apply_time_axis_format(ax: plt.Axes, forecast: pd.DataFrame, actual: pd.Dat
     ax.set_xlim(t.iloc[0] - pad, t.iloc[-1] + pad)
 
 
-def plot_series(forecast: pd.DataFrame, actual: pd.DataFrame, title: str, start=None, end=None) -> None:
+def plot_series(forecasts: dict, actual: pd.DataFrame, title: str, start=None, end=None,
+                scores: Optional[dict] = None) -> None:
     import numpy as np
     import matplotlib.pyplot as plt
     from datetime import datetime, time
@@ -395,7 +478,9 @@ def plot_series(forecast: pd.DataFrame, actual: pd.DataFrame, title: str, start=
             df.sort_values("TIME", inplace=True)
         return df
 
-    forecast = mask_zeros(forecast)
+    forecasts = {name: mask_zeros(df) for name, df in forecasts.items()}
+    # Direction arrows come from the Met Office forecast when there is one
+    forecast = forecasts.get("Met Office", next(iter(forecasts.values()), None))
     actual = mask_zeros(actual)
 
     # Apply smoothing to actual data
@@ -421,11 +506,16 @@ def plot_series(forecast: pd.DataFrame, actual: pd.DataFrame, title: str, start=
         if end > sunset:
             ax.axvspan(max(sunset, start), end, alpha=0.12, color='gray', zorder=0)
 
-    # Forecast: green
-    if forecast is not None and not forecast.empty:
-        ax.plot(forecast["TIME"], forecast["SPEED"], linestyle="-", label="Forecast wind", color="green", linewidth=0.75)
-        if "GUST" in forecast.columns and forecast["GUST"].notna().any():
-            ax.plot(forecast["TIME"], forecast["GUST"], linestyle="--", label="Forecast gust", color="green", linewidth=0.75)
+    # Forecasts: one colour per source, wind solid, gust dashed; legend shows each one's wind error
+    for name, fc in forecasts.items():
+        if fc is None or fc.empty:
+            continue
+        color = FORECAST_SOURCES[name][0]
+        s = (scores or {}).get(name)
+        label = f"{name} (wind error {s['wind_mae_kt']:.1f} kt)" if s else name
+        ax.plot(fc["TIME"], fc["SPEED"], linestyle="-", label=label, color=color, linewidth=0.75)
+        if "GUST" in fc.columns and fc["GUST"].notna().any():
+            ax.plot(fc["TIME"], fc["GUST"], linestyle="--", color=color, linewidth=0.75)
 
     # Actual: faint raw data + smoothed curves
     if actual is not None and not actual.empty:
@@ -436,11 +526,15 @@ def plot_series(forecast: pd.DataFrame, actual: pd.DataFrame, title: str, start=
 
         # Smoothed curves
         if "SPEED_SMOOTH" in actual.columns:
-            ax.plot(actual["TIME"], actual["SPEED_SMOOTH"], linestyle="-", label="Actual wind",
+            ax.plot(actual["TIME"], actual["SPEED_SMOOTH"], linestyle="-", label="Actual (Bramblemet)",
                    color="blue", linewidth=0.75, zorder=3)
         if "GUST_SMOOTH" in actual.columns and actual["GUST_SMOOTH"].notna().any():
-            ax.plot(actual["TIME"], actual["GUST_SMOOTH"], linestyle="--", label="Actual gust",
+            ax.plot(actual["TIME"], actual["GUST_SMOOTH"], linestyle="--",
                    color="blue", linewidth=0.75, zorder=3)
+
+    # Legend key for the line styles, shared by every source
+    ax.plot([], [], linestyle="-", color="gray", linewidth=0.75, label="solid = wind")
+    ax.plot([], [], linestyle="--", color="gray", linewidth=0.75, label="dashed = gust")
 
     # --- Wind direction arrows (if direction data available) ---
     # Arrows point FROM where wind is coming (meteorological convention)
@@ -552,20 +646,30 @@ def main(argv: List[str]) -> int:
     date_window_start = start_naive.tz_localize(LONDON_TZ)
     date_window_end = date_window_start + pd.Timedelta(days=1)
 
-    forecast_path = Path(f"data/{date_str}_bramble_forecast.json")
-    actual_path   = Path(f"data/{date_str}_bramble_actual.csv")
+    forecast_path  = Path(f"data/{date_str}_bramble_forecast.json")
+    openmeteo_path = Path(f"data/{date_str}_bramble_openmeteo.json")
+    actual_path    = Path(f"data/{date_str}_bramble_actual.csv")
 
-    if not forecast_path.exists():
-        print(f"Error: missing forecast file: {forecast_path}", file=sys.stderr)
+    if not forecast_path.exists() and not openmeteo_path.exists():
+        print(f"Error: missing forecast files: {forecast_path}, {openmeteo_path}", file=sys.stderr)
         return 1
     if not actual_path.exists():
         print(f"Error: missing actual file:   {actual_path}", file=sys.stderr)
         return 1
 
-    try:
-        forecast_df = read_forecast_json(forecast_path)
-    except Exception as e:
-        print(f"Failed to read forecast JSON: {e}", file=sys.stderr)
+    # Either forecast file may be missing (e.g. the Open-Meteo one before it was added)
+    forecasts = {}
+    if forecast_path.exists():
+        try:
+            forecasts["Met Office"] = read_forecast_json(forecast_path)
+        except Exception as e:
+            print(f"Failed to read forecast JSON: {e}", file=sys.stderr)
+    if openmeteo_path.exists():
+        try:
+            forecasts.update(read_openmeteo_json(openmeteo_path))
+        except Exception as e:
+            print(f"Failed to read Open-Meteo JSON: {e}", file=sys.stderr)
+    if not forecasts:
         return 1
 
     try:
@@ -581,11 +685,14 @@ def main(argv: List[str]) -> int:
         m = df["TIME"].between(date_window_start, date_window_end, inclusive="left")
         return df.loc[m].copy()
 
-    forecast_df = _clip(forecast_df)
+    forecasts = {name: _clip(df) for name, df in forecasts.items()}
     actual_df = _clip(actual_df)
 
+    scores = {name: score_forecast(df, actual_df) for name, df in forecasts.items()}
+    save_scores(date_str, scores)
+
     title = f"{date_str} Bramble Bank wind"
-    plot_series(forecast_df, actual_df, title, start=date_window_start, end=date_window_end)
+    plot_series(forecasts, actual_df, title, start=date_window_start, end=date_window_end, scores=scores)
 
     # --- Display interactively if no_show is False ---
     if not no_show:
