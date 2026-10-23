@@ -11,7 +11,7 @@
 set -euo pipefail
 
 # --- Configuration ---
-PROJECT_DIR="/home/ray/projects/wind_graphs"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="$PROJECT_DIR/venv"
 PYTHON="$VENV_DIR/bin/python"
 LOGFILE="$PROJECT_DIR/cron_weather.log"
@@ -26,15 +26,26 @@ echo "===========================================" >> "$LOGFILE"
 # --- Ensure virtual environment exists ---
 if [ ! -d "$VENV_DIR" ]; then
   echo "Creating Python venv at $VENV_DIR" >> "$LOGFILE"
-  python3 -m venv "$VENV_DIR"
+  # System site-packages: on the Pi Zero (armv6) pandas/matplotlib come from apt,
+  # since pip has no wheels for it and building from source takes hours.
+  python3 -m venv --system-site-packages "$VENV_DIR"
 fi
 
 # --- Activate virtual environment ---
 source "$VENV_DIR/bin/activate"
 
-# --- Install dependencies if missing ---
-pip install -q --upgrade pip
-pip install -q pandas matplotlib numpy astral
+# --- Install dependencies only if missing ---
+if ! python -c "import pandas, matplotlib, numpy, astral" 2>/dev/null; then
+  pip install -q --upgrade pip
+  pip install -q pandas matplotlib numpy astral
+fi
+
+# No display on a headless Pi
+export MPLBACKEND=Agg
+
+# --- Bring the checkout up to date (the Pi's read-only overlay reverts it at each reboot) ---
+echo "➡️ Pulling latest from GitHub..." >> "$LOGFILE"
+git pull --rebase origin main >> "$LOGFILE" 2>&1
 
 # Optionally load env file if present
 [ -f "/etc/wind_graphs.env" ] && set -a && . /etc/wind_graphs.env && set +a
