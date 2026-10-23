@@ -12,11 +12,13 @@ Given a date string in yyyymmdd format, this script reads these files in ./data:
   3) {yyyymmdd}_bramble_actual.csv     -> actual wind speed & gust for that day (knots)
 
 and replaces that date's rows in data/forecast_scores.csv with each forecast's
-error against the actuals (wind mean absolute error and bias, gust MAE).
+error against the actuals (worst-hour wind error and its time, wind mean
+absolute error and bias, gust MAE).
 
 Plot features:
   - Wind:  solid line | Gusts: dashed line
-  - Forecasts: Met Office green, AROME orange, ECMWF purple; legend shows each one's wind error
+  - Forecasts: Met Office green, AROME orange, ECMWF purple; legend shows each one's
+    worst hour (how far out, too light or too strong, and when)
   - Actual: faint raw (30% opacity) + bold smoothed (2-hour rolling avg)
   - Wind direction arrows at hourly intervals (when data available)
   - Day/night shading for context
@@ -341,8 +343,12 @@ def score_forecast(forecast: pd.DataFrame, actual: pd.DataFrame) -> Optional[dic
     gust_err = (f["GUST"] - ag).dropna()
     if wind_err.empty:
         return None
+    # Worst hour: what could catch you out. Signed: negative = forecast too light
+    worst_t = wind_err.abs().idxmax()
     return {
         "hours": len(wind_err),
+        "wind_worst_err_kt": round(wind_err[worst_t], 2),
+        "wind_worst_time": worst_t.strftime("%H:%M"),
         "wind_mae_kt": round(wind_err.abs().mean(), 2),
         "wind_bias_kt": round(wind_err.mean(), 2),
         "gust_mae_kt": round(gust_err.abs().mean(), 2) if not gust_err.empty else np.nan,
@@ -506,13 +512,18 @@ def plot_series(forecasts: dict, actual: pd.DataFrame, title: str, start=None, e
         if end > sunset:
             ax.axvspan(max(sunset, start), end, alpha=0.12, color='gray', zorder=0)
 
-    # Forecasts: one colour per source, wind solid, gust dashed; legend shows each one's wind error
+    # Forecasts: one colour per source, wind solid, gust dashed; legend shows each one's worst hour
     for name, fc in forecasts.items():
         if fc is None or fc.empty:
             continue
         color = FORECAST_SOURCES[name][0]
         s = (scores or {}).get(name)
-        label = f"{name} (wind error {s['wind_mae_kt']:.1f} kt)" if s else name
+        if s:
+            err = s["wind_worst_err_kt"]
+            way = "too light" if err < 0 else "too strong"
+            label = f"{name}: worst {abs(err):.1f} kt {way} at {s['wind_worst_time']}"
+        else:
+            label = name
         ax.plot(fc["TIME"], fc["SPEED"], linestyle="-", label=label, color=color, linewidth=0.75)
         if "GUST" in fc.columns and fc["GUST"].notna().any():
             ax.plot(fc["TIME"], fc["GUST"], linestyle="--", color=color, linewidth=0.75)
