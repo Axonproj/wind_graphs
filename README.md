@@ -21,8 +21,8 @@ Add to crontab on Raspberry Pi:
 ## Graph Features
 
 - Faint raw actual data (30% opacity) with bold smoothed curves (2-hour rolling avg)
-- Forecast lines in knots: Met Office green, AROME orange, ECMWF purple, each with its wind error in the legend
-- Each forecast's error is also kept in data/forecast_scores.csv (wind MAE and bias, gust MAE, knots)
+- Forecast lines in knots: Met Office green, AROME orange, ECMWF purple, each with its worst hour in the legend (how far out, too light or too strong, and when)
+- Each forecast's error is also kept in data/forecast_scores.csv (worst-hour wind error and time, wind MAE and bias, gust MAE, knots; negative = forecast too light)
 - Wind direction arrows at hourly intervals
 - Day/night shading for context
 - Beaufort scale bands and labels
