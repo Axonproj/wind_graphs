@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 
-export METOFFICE_API_KEY="REDACTED_METOFFICE_KEY"
+# The key comes from the environment: run_daily_update.sh loads it from
+# /etc/wind_graphs.env (METOFFICE_API_KEY=...), which is not in git.
+: "${METOFFICE_API_KEY:?set METOFFICE_API_KEY in /etc/wind_graphs.env}"
 
 if date -v+1d +"%Y%m%d" >/dev/null 2>&1; then
     # macOS / BSD date
